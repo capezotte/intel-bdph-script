@@ -1,2 +1,2 @@
 # intel-bdph-script
-Script for Intel Sandy Bridge and newer processors that disables throttling by BD_PROCHOT.
+Script para processadores Intel Sandy Bridge e posteriores que desativa throttling por BD_PROCHOT.
