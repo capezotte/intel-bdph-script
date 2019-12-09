@@ -14,28 +14,25 @@ echoerr() { echo "$@" 1>&2; }
      END {exit found_intel}' /proc/cpuinfo) || { echoerr 'ERRO: Sua CPU não é da Intel'; exit 63; }
 
 # 3 - Testar se as msr-tools existem
-INSTALADAS=0
-for cmd in 'which rdmsr' 'which wrmsr'; do
-    (eval $cmd >> /dev/null 2>&1) || INSTALADAS=1
-done
-[ $INSTALADAS -ne 0 ] && { echoerr 'ERRO: É necessário instalar as msr-tools no seu sistema operacional.'; exit 1; }
+(which wrmsr >> /dev/null 2>&1 && which rdmsr >> /dev/null 2>&1 && modinfo msr >> /dev/null 2>&1) || { echoerr 'ERRO: É necessário instalar as msr-tools no seu sistema operacional.'; exit 1; }
 
 # 4 - Alerta para macs
-(grep Mac /sys/devices/virtual/dmi/id/product_name) && {
-    echo 'Detectamos que você está possivelmente usando um Mac. Caso esteja, instale o pacote macfanctld para melhores resultados.'
+(grep Mac /sys/devices/virtual/dmi/id/product_name >> /dev/null 2>&1 && !(which macfanctld) ) && {
+        echo -n "Recomenda-se a instalação do gerenciador de ventoinha para Macs (macfanctld)."
 }
 
-if [ "$EUID" -ne 0 ]; then
+# 5 - Linux tools
+(grep -i 'buntu\|mint\|zorin' /etc/*release* >> /dev/null 2>&1 || grep -R ubuntu /etc/apt/ >> /dev/null 2>&1) && { # procurar Ubuntu
+    echo "Recomenda-se a instalação das ferramentas de kernel nos sistemas de base Ubuntu. Para isso, rode $ sudo apt install linux-tools-$(uname -r)."
+    echo 'Ignore o aviso acima caso elas já estejam instaladas.';
+}
+
+if [ "$(id -u)" -ne 0 ]; then
     echo 'Você é um usuário normal. Confirme sua senha para continuar como root.'
     # Se estivermos em um terminal, SUDO. Se não, interface gráfica.
     if [ -t 1 ]; then sudo /bin/sh $0; else pkexec /bin/sh $0; fi
 else
-    # 5 - Linux tools
-    (grep -i 'buntu\|mint\|zorin' /etc/*release* >> /dev/null 2>&1 || grep -R ubuntu /etc/apt/ >> /dev/null 2>&1) && { # procurar Ubuntu
-        (dpkg -l linux-tools-$(uname -r) >> /dev/null 2>&1) || { # confirmar se já está instalado
-            echo "Recomenda-se a instalação das ferramentas de kernel nos sistemas de base Ubuntu. Rodando sudo apt install linux-tools-$(uname -r)...";
-            apt install linux-tools-$(uname -r) || echoerr "ALERTA: O pacote linux-tools-$(uname -r) não foi instalado corretamente. O script pode não funcionar."; };
-    }
+    
     # Testar se o script já foi rodado neste boot (pasta /tmp é resetada a cada boot)
     [ -f '/tmp/intel-bdph-script' ] && {
     echoerr 'ERRO: Esse script já foi rodado nessa máquina!';
@@ -58,7 +55,7 @@ else
         print num""let
         }')) || { echoerr 'ERRO: Não foi possível desativar BD_PROCHOT.' ; exit 5; }
     
-    echo 'Finalizado. Pondo um arquivo-flg na pasta /tmp.'
+    echo 'Finalizado. Pondo um arquivo-flag na pasta /tmp.'
     # Marcar que já foi escrito nesse boot
     touch /tmp/intel-bdph-script
 fi
