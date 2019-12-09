@@ -1,20 +1,40 @@
 #! /bin/sh
 
-#Função que dá echo em caso de erro.
+# Para dar echo em caso de erro
 echoerr() { echo "$@" 1>&2; }
 
-#Testar se os pré-requisitos existem:
+# Teste de root.
+[ $(id -u) -ne 0 ] && {
+    echo 'Você está rodando como um usuário normal. Digite sua senha para continuar como root.'
+    if [ -t 1 ]; then sudo /bin/sh $0; else pkexec /bin/sh $0; fi
+    [ $? -ne 0 ] && {
+        echoerr 'Erro ao assumir root.'
+        exit 127
+    }
+    exit 127 # sem root a gente não faz nada
+}
 
-# 1 - Testar awk
-(which awk >> /dev/null 2>&1 ) || { echoerr 'ERRO: É necessário instalar o AWK no seu sistema operacional.'; exit 1; }
+### Pré - requisitos ###
 
-# 2 - Testar se o processador é Intel (procurar GenuineIntel no /proc/cpuinfo)
-(awk 'BEGIN { found_intel=1 }
+# 1 - Testar AWK
+which awk || {
+    echoerr 'ERRO: É necessário instalar o AWK no seu sistema operacional.'
+    exit 1
+}
+
+# 2 - Testar Intel
+awk 'BEGIN { found_intel=1 }
      $1=="vendor_id" { if ($3 == "GenuineIntel") found_intel=0 }
-     END {exit found_intel}' /proc/cpuinfo) || { echoerr 'ERRO: Sua CPU não é da Intel'; exit 63; }
+     END {exit found_intel}' /proc/cpuinfo || {
+    echoerr 'ERRO: Sua CPU não é da Intel'
+    exit 1
+}
 
-# 3 - Testar se as msr-tools existem
-(which wrmsr >> /dev/null 2>&1 && which rdmsr >> /dev/null 2>&1 && modinfo msr >> /dev/null 2>&1) || { echoerr 'ERRO: É necessário instalar as msr-tools no seu sistema operacional.'; exit 1; }
+# 3 - Testar MSR-Tools
+(which wrmsr >> /dev/null 2>&1 && which rdmsr >> /dev/null 2>&1 && modinfo msr >> /dev/null 2>&1) || {
+    echoerr 'ERRO: É necessário instalar as msr-tools no seu sistema operacional.'
+    exit 1
+}
 
 # 4 - Alerta para macs
 (grep Mac /sys/devices/virtual/dmi/id/product_name >> /dev/null 2>&1 && !(which macfanctld) ) && {
@@ -27,35 +47,39 @@ echoerr() { echo "$@" 1>&2; }
     echo 'Ignore o aviso acima caso elas já estejam instaladas.';
 }
 
-if [ "$(id -u)" -ne 0 ]; then
-    echo 'Você é um usuário normal. Confirme sua senha para continuar como root.'
-    # Se estivermos em um terminal, SUDO. Se não, interface gráfica.
-    if [ -t 1 ]; then sudo /bin/sh $0; else pkexec /bin/sh $0; fi
-else
-    
-    # Testar se o script já foi rodado neste boot (pasta /tmp é resetada a cada boot)
-    [ -f '/tmp/intel-bdph-script' ] && {
-    echoerr 'ERRO: Esse script já foi rodado nessa máquina!';
-    echoerr 'Se tem certeza de que deseja rodá-lo novamente, remova o arquivo /tmp/intel-bdph-script';
-    exit 2; }
+### CÓDIGOS ###
 
-    echo 'Carregando o módulo de kernel do MSR...'
-    (modprobe msr) || { echoerr 'ERRO: Não foi possível inserir o módulo do MSR no kernel.' ; exit 3; }
+# Verificar se já executamos nesse boot.
+[ -f '/tmp/intel-bdph-script' ] && {
+    echoerr 'ERRO: Esse script já foi rodado nessa máquina!'
+    echoerr 'Se tem certeza de que deseja rodá-lo novamente, remova o arquivo /tmp/intel-bdph-script'
+    exit 2
+}
 
-    echo 'Lendo o registro PROCHOT do processador...'
-    regist=$(rdmsr 0x1FC)
-    [ $? -ne 0 ] && { echoerr 'ERRO: Não foi possível obter os conteúdos do registro BD_PROCHOT.' ; exit 4; }
+echo 'Carregando o módulo de kernel do MSR...'
+modprobe msr || {
+    echoerr 'ERRO: Não foi possível inserir o módulo do MSR no kernel.'
+    exit 3
+}
 
-    echo 'Escrevendo no registro do processador...'
-    (wrmsr 0x1FC $(printf '%s' "$regist" | awk '{
-        match($0,"[0-9]+")
-        num=substr($0,RSTART,RLENGTH)-1
-        match($0,"[a-z]+")
-        let=substr($0,RSTART,RLENGTH)
-        print num""let
-        }')) || { echoerr 'ERRO: Não foi possível desativar BD_PROCHOT.' ; exit 5; }
-    
-    echo 'Finalizado. Pondo um arquivo-flag na pasta /tmp.'
-    # Marcar que já foi escrito nesse boot
-    touch /tmp/intel-bdph-script
-fi
+echo 'Lendo o registro PROCHOT do processador...'
+regist=$(rdmsr 0x1FC)
+[ $? -ne 0 ] && {
+    echoerr 'ERRO: Não foi possível obter os conteúdos do registro BD_PROCHOT.'
+    exit 4
+}
+
+echo 'Escrevendo no registro do processador...'
+wrmsr 0x1FC $(printf '%s' "$regist" | awk '{
+ match($0,"[0-9]+")
+ num=substr($0,RSTART,RLENGTH)-1
+ match($0,"[a-z]+")
+ let=substr($0,RSTART,RLENGTH)
+ print num""let
+ }') || {
+    echoerr 'ERRO: Não foi possível desativar BD_PROCHOT.'
+    exit 5
+}
+
+echo 'Finalizado. Pondo um arquivo-flag na pasta /tmp.'
+touch /tmp/intel-bdph-script
